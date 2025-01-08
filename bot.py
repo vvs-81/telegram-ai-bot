@@ -8,60 +8,48 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
-    JobQueue
+    JobQueue,
 )
 from deep_translator import GoogleTranslator
 
-# Логи
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
 # Переменные окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN")               # Токен бота (от BotFather)
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@my_news") # Ваш канал, например '@my_news'
+BOT_TOKEN = os.getenv("BOT_TOKEN")               # Ваш токен бота
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@my_news") # Ваш канал (например, @my_news)
 
-# RSS-ленты
+# RSS-источники (пример)
 RSS_FEEDS = [
-    "https://hnrss.org/newest",                
-    "https://www.indiehackers.com/feed.xml",   
+    "https://hnrss.org/newest",
+    "https://www.indiehackers.com/feed.xml",
 ]
 
-# Файл для хранения «уже опубликованных» ссылок
 PUBLISHED_FILE = "published_links.txt"
 
-
-# --- Вспомогательные функции ---
-
 def load_published_links():
-    """Считываем уже опубликованные ссылки."""
     if not os.path.exists(PUBLISHED_FILE):
         return set()
     with open(PUBLISHED_FILE, "r", encoding="utf-8") as f:
         return set(line.strip() for line in f)
 
 def save_published_link(link):
-    """Сохраняем ссылку в файл."""
     with open(PUBLISHED_FILE, "a", encoding="utf-8") as f:
         f.write(link + "\n")
 
 def summarize_text(text, max_len=200):
-    """Обрезаем текст до max_len символов."""
     text = text.strip()
     if len(text) > max_len:
         return text[:max_len].rstrip() + "..."
     return text
 
 def translate_to_russian(text: str) -> str:
-    """Перевод на русский язык с помощью deep-translator (GoogleTranslator)."""
     return GoogleTranslator(source='auto', target='ru').translate(text)
 
-
-# --- Функция, которую будем запускать каждые N минут (через JobQueue) ---
-
 async def fetch_and_post(context: ContextTypes.DEFAULT_TYPE):
-    """Основная логика парсинга RSS и отправки в канал."""
+    """Функция, которая вызывается JobQueue каждые N минут"""
     bot = context.bot
     published_links = load_published_links()
 
@@ -73,22 +61,18 @@ async def fetch_and_post(context: ContextTypes.DEFAULT_TYPE):
             title = entry.title
             summary_text = getattr(entry, 'summary', '')
 
-            # Проверяем, публиковали ли мы уже это
             if link in published_links:
                 continue
 
-            # Делаем короткий анонс + переводим
-            short_summary = summarize_text(summary_text, 200)
+            short_summary = summarize_text(summary_text)
             short_summary_ru = translate_to_russian(short_summary)
 
-            # Формируем текст для Telegram (Markdown)
             msg_text = (
                 f"**{title}**\n\n"
                 f"{short_summary_ru}\n\n"
                 f"Ссылка на оригинал: {link}"
             )
 
-            # Публикуем
             try:
                 await bot.send_message(
                     chat_id=CHANNEL_ID,
@@ -97,38 +81,30 @@ async def fetch_and_post(context: ContextTypes.DEFAULT_TYPE):
                 )
                 logging.info(f"Опубликовано: {title}")
 
-                # Сохраняем ссылку
                 published_links.add(link)
                 save_published_link(link)
 
             except Exception as e:
                 logging.error(f"Ошибка при отправке: {e}")
 
-
-# --- Команда /start (необязательно) ---
-
-async def start_command(update, context):
-    """Обработчик команды /start в личке бота."""
-    await update.message.reply_text("Бот запущен! Скоро появятся новые статьи в канале.")
-
-
-# --- Основная точка входа ---
+async def start_command(update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start (необязательно)"""
+    await update.message.reply_text("Бот запущен! Скоро в канале появятся новости.")
 
 def main():
-    # Создаём приложение (Application) c помощью билдера
+    # Создаём приложение
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Регистрируем обработчик команды /start
+    # Добавляем команду /start
     app.add_handler(CommandHandler("start", start_command))
 
-    # Планировщик задач (JobQueue)
+    # Планировщик (JobQueue)
     job_queue = app.job_queue
-    # Запускать fetch_and_post каждые 900 секунд (15 мин), первый раз через 10 сек
-    job_queue.run_repeating(fetch_and_post, interval=30, first=10)
+    job_queue.run_repeating(fetch_and_post, interval=900, first=10)
+    # interval=900 -> каждые 15 минут, first=10 -> через 10 секунд после запуска
 
-    # Запускаем "бесконечный" цикл бота (поллинг)
+    # Запускаем бота (поллинг)
     app.run_polling()
 
-# Точка входа
 if __name__ == "__main__":
     main()
