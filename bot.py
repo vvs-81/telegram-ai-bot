@@ -124,7 +124,7 @@ def main():
     # Планировщик задач (JobQueue)
     job_queue = app.job_queue
     # Запускать fetch_and_post каждые 900 секунд (15 мин), первый раз через 10 сек
-    job_queue.run_repeating(fetch_and_post, interval=900, first=10)
+    job_queue.run_repeating(fetch_and_post, interval=30, first=10)
 
     # Запускаем "бесконечный" цикл бота (поллинг)
     app.run_polling()
